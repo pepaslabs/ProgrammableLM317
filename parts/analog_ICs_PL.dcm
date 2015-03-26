@@ -1,0 +1,9 @@
+EESchema-DOCLIB  Version 2.0  Date: 6/12/2014 10:48:54 PM
+#
+$CMP MCP4821
+D MCP4801 (MCP4811, MCP4821) Single 8-bit (10-bit, 12-bit) Digital to Analog Converter, SPI Interface, PDIP-8
+K Single DAC 1ch 12bit SPI
+F http://ww1.microchip.com/downloads/en/devicedoc/21897a.pdf
+$ENDCMP
+#
+#End Doc Library

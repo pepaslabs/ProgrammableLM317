@@ -1,0 +1,12 @@
+EESchema-DOCLIB  Version 2.0  Date: 3/23/2014 11:47:54 AM
+#
+$CMP DP6T
+D Double Pole, 6 Throw Rotary Switch
+$ENDCMP
+#
+$CMP SPDT
+D SPDT
+K switch
+$ENDCMP
+#
+#End Doc Library

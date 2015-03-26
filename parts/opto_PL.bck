@@ -1,0 +1,13 @@
+EESchema-DOCLIB  Version 2.0  Date: 3/14/2014 11:02:31 PM
+#
+$CMP 4N35
+D 4N35 NPN Opto-transistor, DIP6
+K opto
+$ENDCMP
+#
+$CMP 817C
+D 817C NPN Opto-transistor, DIP4
+K opto
+$ENDCMP
+#
+#End Doc Library
