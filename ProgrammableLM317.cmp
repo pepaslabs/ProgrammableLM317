@@ -1,4 +1,4 @@
-Cmp-Mod V01 Created by CvPcb (2013-07-07 BZR 4022)-stable date = 3/25/2015 2:52:00 AM
+Cmp-Mod V01 Created by CvPcb (2013-07-07 BZR 4022)-stable date = 3/25/2015 9:21:19 PM
 
 BeginCmp
 TimeStamp = /550F907E;
@@ -68,6 +68,20 @@ TimeStamp = /551265B1;
 Reference = C11;
 ValeurCmp = 0.1uF;
 IdModule  = CERCAP_2_059A;
+EndCmp
+
+BeginCmp
+TimeStamp = /55137B96;
+Reference = D1;
+ValeurCmp = 1N4001;
+IdModule  = DIODE_3_059A;
+EndCmp
+
+BeginCmp
+TimeStamp = /55137B87;
+Reference = D2;
+ValeurCmp = 1N4001;
+IdModule  = DIODE_3_059A;
 EndCmp
 
 BeginCmp
