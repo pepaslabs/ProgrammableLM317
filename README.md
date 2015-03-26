@@ -9,6 +9,10 @@ This board design is [Open-Source Hardware](http://www.oshwa.org/definition/).  
 
 Added protection diodes around the LM317.
 
+![](releases/v2/top.png)
+
+![](releases/v2/bottom.png)
+
 ## Gerbers
 
 [gerbers.zip](releases/v2/gerbers.zip)
@@ -21,13 +25,9 @@ Added protection diodes around the LM317.
 
 Initial board design.
 
-![](releases/v1/top.png)
-
-![](releases/v1/bottom.png)
-
 ## Gerbers
 
-[gerbers.zip](releases/v1/gerbers.zip)
+*DEPRECATED*: Don't use this design.  I forgot to include protection diodes around the LM317.
 
 ## Schematic
 
