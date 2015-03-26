@@ -13,6 +13,8 @@ Added protection diodes around the LM317.
 
 ![](releases/v2/bottom.png)
 
+*(Board renders courtesy of [OSHPark](https://oshpark.com/shared_projects/39B3GV50))*
+
 ## Gerbers
 
 [gerbers.zip](releases/v2/gerbers.zip)
