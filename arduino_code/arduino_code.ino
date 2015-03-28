@@ -4,9 +4,14 @@
   Released under the terms of the MIT License.  See http://opensource.org/licenses/MIT
 */
 
+#define __STDC_LIMIT_MACROS
+#include <stdint.h>
+
 #include <SoftwareSerial.h>
 #include <WOTinySoftSPI.h>
 #include <MCP4801SoftSPI.h>
+
+#include "command_t.h"
 
 // ATiny85 pinout:
 //
@@ -61,50 +66,33 @@ MCP4801SoftSPI voltageDAC(MCP4801_SLAVESELECTLOW_pin,
 
 // --- serial port setup
 
-SoftwareSerial mySerial(RX_pin, TX_pin);
-
-void setup()
-{
-  mySerial.begin(9600); // SERIAL_7E1
-  // hrmmm... SoftwareSerial doesn't support parity.  bummer.
-  // however, if we are only dealing with 7-bit ASCII, we can
-  // just implement our own parity (and the other host can
-  // configure their connection as 7E1).
-  
-  // start up the SPI bus
-  mySPI.begin();
-  mySPI.setBitOrder(MSBFIRST);
-  mySPI.setDataMode(SPI_MODE0);
-
-  // start controlling the voltage supply
-  voltageDAC.begin();  
-}
+SoftwareSerial serial(RX_pin, TX_pin);
 
 /*
 
 Serial terminal interface:
 
-To set the output voltage to 5 volts:
+Set the output voltage to 5 volts:
 
     v5.000;
 
-To set the bits in the DAC to 0xFF (8-bit DAC):
+Set the bits in the DAC to 0xFF (8-bit DAC):
 
-    0xFF;
+    xFF;
 
-To set the bits in the DAC to 0x3FF (10-bit DAC):
+Set the bits in the DAC to 0x3FF (10-bit DAC):
 
-    0x3FF;
+    x3FF;
 
-To set the bits in the DAC to 0xFFF (12-bit DAC):
+Set the bits in the DAC to 0xFFF (12-bit DAC):
 
-    0xFFF;
+    xFFF;
 
-To increase the DAC output by one LSB:
+Increase the DAC output by one LSB:
 
     +;
 
-To decrease the DAC output by one LSB:
+Decrease the DAC output by one LSB:
 
     -;
 
@@ -112,24 +100,6 @@ To decrease the DAC output by one LSB:
 
 #define MIN_EXPECTED_LEN 2 // +;
 #define MAX_EXPECTED_LEN 8 // v12.345;
-
-/*
-the ';' character sent using SERIAL_8N1 looks like this in binary:
-
-  0b00111011
-  
-sent using SERIAL_7E1, it looks like this:
-
-  0b01110111
-
-which is the same as a 'w' sent over SERIAL_8N1:
-
-  0b01110111
-
-so we can use the stock SoftwareSerial.readBytesUntil(), but listen for 'w'.
-*/
-
-#define SEMICOLON_WITH_EVEN_PARITY 'w'
 
 uint16_t DAC_bits = 0;
 
@@ -139,54 +109,45 @@ uint16_t DAC_bits = 0;
 
 uint8_t DAC_num_bits = MCP4801_NUM_BITS;
 
-#define COMMAND_SENTINEL ';'
-
 #define BUFF_LEN (MAX_EXPECTED_LEN + sizeof('\0'))
 char buffer[BUFF_LEN];
+char *buff_ptr;
 
+void setup()
+{
+  serial.begin(9600);
+  
+  // start up the SPI bus
+  mySPI.begin();
+  mySPI.setBitOrder(MSBFIRST);
+  mySPI.setDataMode(SPI_MODE0);
+
+  // start controlling the voltage supply
+  voltageDAC.begin();  
+
+  memset(buffer, 0, sizeof(buffer));
+  buff_ptr = buffer;
+}
 
 void loop()
 {
-  memset(buffer, 0, sizeof(buffer));
+  command_t command = read_command(&serial, buffer, BUFF_LEN);
+
   bool ok;
-  
-  uint8_t num_bytes_read = mySerial.readBytesUntil('z', buffer, MAX_EXPECTED_LEN);
-  if (num_bytes_read < MIN_EXPECTED_LEN)
-  {
-    nope('a');
-    return;
-  }
-  
-  if (buffer[num_bytes_read - 1] != COMMAND_SENTINEL)
-  {
-    nope('b');
-    return;
-  }
-
-  buffer[num_bytes_read] = '\0';
-  
-  /*
-  bool ok = check_and_strip_parity_from_buffer(buffer, (num_bytes_read - 1));
-  if (!ok)
-  {
-    nope();
-    return;
-  }
-  */
-
-  if (buffer[0] == '+')
+    
+  if (command = COMMAND_INCREMENT)
   {
     ok = increment_output_voltage();
   }
-  else if (buffer[0] == '-')
+  else if (command = COMMAND_DECREMENT)
   {
     ok = decrement_output_voltage();
   }
-  else if (buffer[0] == 'v')
+  else if (command = COMMAND_SET_VOLTS)
   {
     ok = parse_and_run_voltage_command(buffer);
   }
-  else if (buffer[0] == '0')
+  else if (command = COMMAND_SET_HEX)
   {
     ok = parse_and_run_hex_command(buffer);
   }
@@ -201,45 +162,156 @@ void loop()
   }
   else
   {
-    nope('c');
+    nope('a');
+  }
+}
+
+command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
+{
+  if (buff_len < 2)
+  {
+    return COMMAND_UNKNOWN;
+  }
+
+  // --- read the first character
+  
+  while(serial->available() == 0)
+  {
+    continue;
+  }
+    
+  char ch = serial->read();
+  
+  if (ch == '+')
+  {
+    uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
+    if (num_chars_consumed == 1)
+    {
+      return COMMAND_INCREMENT;
+    }
+    else
+    {
+      return COMMAND_UNKNOWN;
+    }
+  }
+  else if (ch == '-')
+  {
+    uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
+    if (num_chars_consumed == 1)
+    {
+      return COMMAND_DECREMENT;
+    }
+    else
+    {
+      return COMMAND_UNKNOWN;
+    }
+  }
+  else if (ch == 'x')
+  {
+    // prepend buffer with '0x'
+    buffer[0] = '0';
+    buffer[1] = 'x';
+    buff_ptr = buffer+2;
+    
+    // read the hex characters into buffer
+    bool reached_sentinel = read_until_sentinel(serial, buffer, buff_len-2, ';');    
+    if (!reached_sentinel)
+    {
+      return COMMAND_UNKNOWN;
+    }
+    else
+    {
+      return COMMAND_SET_HEX;
+    }
+  }
+  else if (ch == 'v')
+  {
+    // read the floating point string into buffer
+    bool reached_sentinel = read_until_sentinel(serial, buffer, buff_len, ';');
+    if (!reached_sentinel)
+    {
+      return COMMAND_UNKNOWN;
+    }
+    else
+    {
+      return COMMAND_SET_VOLTS;
+    }
+  }
+  else
+  {
+    return COMMAND_UNKNOWN;
+  }
+}
+
+uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
+{
+  uint8_t num_chars_consumed = 0;
+  
+  while(true)
+  {
+    while(serial->available() == 0)
+    {
+      continue;
+    }
+    
+    char ch = serial->read();
+    num_chars_consumed++;
+    
+    if (ch == sentinel || num_chars_consumed == UINT8_MAX)
+    {
+      return num_chars_consumed;
+    }
+  }
+}
+
+bool read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len, char sentinel)
+{
+  uint8_t num_chars_consumed = 0;
+  char *buff_ptr = buffer;
+  
+  while(true)
+  {
+    while(serial->available() == 0)
+    {
+      continue;
+    }
+    
+    *buff_ptr = serial->read();
+    num_chars_consumed++;
+
+    if (*buff_ptr == sentinel)
+    {
+      *buff_ptr = '\0';
+      bool sentinel_reached = true;
+      return sentinel_reached;
+    }
+    else if (num_chars_consumed == buff_len-1)
+    {
+      *buff_ptr = '\0';
+      bool sentinel_reached = false;
+      return sentinel_reached;
+    }
+    else
+    {
+      buff_ptr++;
+      continue;
+    }  
   }
 }
 
 void nope(char ch)
 {
-  mySerial.print(ch);
-  mySerial.flush();
+  serial.print("!");
+  serial.print(ch);
+  serial.print(";");
+  serial.flush();
 }  
 
 void ack()
 {
-  mySerial.print(".");
-  mySerial.flush();
+  serial.print(".");
+  serial.flush();
 }
-
-/*
-bool check_and_strip_parity_from_buffer(char *buffer, uint8_t len)
-{
-  for (uint8_t i=0; i < len; i++)
-  {
-    bool ok = check_and_strip_parity_from_byte(&buffer[i]);
-    if (!ok)
-    {
-      return false;
-    }
-  }
-}
-
-bool check_and_strip_parity_from_byte(char *buffer)
-{
-  uint8_t byte_with_parity = buffer[0];
-  uint8_t decoded_byte = byte_with_parity >> 1;
-  uint8_t received_parity_bit = byte_with_parity % 1;
-  uint8_t expected_parity_bit = decoded_byte % 1;
-  buffer[0] = decoded_byte;
-  return (expected_parity_bit == received_parity_bit);
-}
-*/
 
 void set_DAC_bits(uint8_t bits)
 {
@@ -284,7 +356,7 @@ bool decrement_output_voltage()
 bool parse_and_run_voltage_command(char *buffer)
 {
   float v = 0;
-  int num_matches_found = sscanf(buffer, "%f", &v+1);
+  int num_matches_found = sscanf(buffer, "%f", &v);
   if (num_matches_found != 1)
   {
     return false;
@@ -307,3 +379,4 @@ bool parse_and_run_hex_command(char *buffer)
   set_DAC_bits(DAC_bits);
   return true;
 }
+
