@@ -13,6 +13,16 @@
 
 #include "command_t.h"
 
+// --- Feature toggles
+
+#define HAS_INCREMENT_COMMAND
+#define HAS_DECREMENT_COMMAND
+#define HAS_VOLTS_COMMAND
+#define HAS_HEX_COMMAND
+//#define HAS_ERROR_PRINTING
+//#define HAS_SUCCESS_PRINTING
+
+
 // ATiny85 pinout:
 //
 //                                      +--\/--+
@@ -64,6 +74,13 @@ MCP4801SoftSPI voltageDAC(MCP4801_SLAVESELECTLOW_pin,
                           &mySPI
                          );
 
+#define MCP4801_NUM_BITS 8
+#define MCP4811_NUM_BITS 10
+#define MCP4821_NUM_BITS 12
+
+uint8_t DAC_num_bits = MCP4801_NUM_BITS;
+uint16_t DAC_data = 0;
+
 // --- serial port setup
 
 SoftwareSerial serial(RX_pin, TX_pin);
@@ -101,21 +118,16 @@ Decrease the DAC output by one LSB:
 #define MIN_EXPECTED_LEN 2 // +;
 #define MAX_EXPECTED_LEN 8 // v12.345;
 
-uint16_t DAC_bits = 0;
-
-#define MCP4801_NUM_BITS 8
-#define MCP4811_NUM_BITS 10
-#define MCP4821_NUM_BITS 12
-
-uint8_t DAC_num_bits = MCP4801_NUM_BITS;
-
 #define BUFF_LEN (MAX_EXPECTED_LEN + sizeof('\0'))
 char buffer[BUFF_LEN];
 char *buff_ptr;
 
 void setup()
 {
+  delay(1);
   serial.begin(9600);
+  serial.print("OK;");
+  serial.flush();
   
   // start up the SPI bus
   mySPI.begin();
@@ -132,47 +144,46 @@ void setup()
 void loop()
 {
   command_t command = read_command(&serial, buffer, BUFF_LEN);
+  if (command >= END_OF_COMMANDS_SECTION)
+  {
+    printError(command);
+    return;
+  }
 
-  bool ok;
-    
-  if (command = COMMAND_INCREMENT)
+  error_t error;
+  
+  if (command == COMMAND_INCREMENT)
   {
-    ok = increment_output_voltage();
+    error = increment_output_voltage();
   }
-  else if (command = COMMAND_DECREMENT)
+  else if (command == COMMAND_DECREMENT)
   {
-    ok = decrement_output_voltage();
+    error = decrement_output_voltage();
   }
-  else if (command = COMMAND_SET_VOLTS)
+  else if (command == COMMAND_SET_VOLTS)
   {
-    ok = parse_and_run_voltage_command(buffer);
+    error = parse_and_run_voltage_command(buffer);
   }
-  else if (command = COMMAND_SET_HEX)
+  else if (command == COMMAND_SET_HEX)
   {
-    ok = parse_and_run_hex_command(buffer);
+    error = parse_and_run_hex_command(buffer);
   }
   else
   {
-    ok = false;
+    error = ERROR_UNKNOWN_COMMAND;
   }
 
-  if (ok)
+  if (error != OK_NO_ERROR)
   {
-    ack();
+    printError(error);
+    return;
   }
-  else
-  {
-    nope('a');
-  }
+  
+  printSuccess(command);
 }
 
 command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
 {
-  if (buff_len < 2)
-  {
-    return COMMAND_UNKNOWN;
-  }
-
   // --- read the first character
   
   while(serial->available() == 0)
@@ -191,7 +202,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     }
     else
     {
-      return COMMAND_UNKNOWN;
+      return ERROR_PARSING_INCREMENT_COMMAND;
     }
   }
   else if (ch == '-')
@@ -203,7 +214,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     }
     else
     {
-      return COMMAND_UNKNOWN;
+      return ERROR_PARSING_DECREMENT_COMMAND;
     }
   }
   else if (ch == 'x')
@@ -214,32 +225,32 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     buff_ptr = buffer+2;
     
     // read the hex characters into buffer
-    bool reached_sentinel = read_until_sentinel(serial, buffer, buff_len-2, ';');    
-    if (!reached_sentinel)
-    {
-      return COMMAND_UNKNOWN;
-    }
-    else
+    error_t error = read_until_sentinel(serial, buffer, buff_len-2, ';');    
+    if (error == OK_NO_ERROR)
     {
       return COMMAND_SET_HEX;
+    }
+    else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+    {      
+      return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_HEX_COMMAND;
     }
   }
   else if (ch == 'v')
   {
     // read the floating point string into buffer
-    bool reached_sentinel = read_until_sentinel(serial, buffer, buff_len, ';');
-    if (!reached_sentinel)
-    {
-      return COMMAND_UNKNOWN;
-    }
-    else
+    error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+    if (error == OK_NO_ERROR)
     {
       return COMMAND_SET_VOLTS;
+    }
+    else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+    {      
+      return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VOLTS_COMMAND;
     }
   }
   else
   {
-    return COMMAND_UNKNOWN;
+    return ERROR_UNKNOWN_COMMAND;
   }
 }
 
@@ -264,7 +275,7 @@ uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
   }
 }
 
-bool read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len, char sentinel)
+error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len, char sentinel)
 {
   uint8_t num_chars_consumed = 0;
   char *buff_ptr = buffer;
@@ -282,14 +293,12 @@ bool read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len,
     if (*buff_ptr == sentinel)
     {
       *buff_ptr = '\0';
-      bool sentinel_reached = true;
-      return sentinel_reached;
+      return OK_NO_ERROR;
     }
     else if (num_chars_consumed == buff_len-1)
     {
       *buff_ptr = '\0';
-      bool sentinel_reached = false;
-      return sentinel_reached;
+      return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED;
     }
     else
     {
@@ -299,84 +308,99 @@ bool read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len,
   }
 }
 
-void nope(char ch)
+void printError(error_t error)
 {
-  serial.print("!");
-  serial.print(ch);
+#ifdef HAS_ERROR_PRINTING
+  serial.print("!e");
+  serial.print(error);
   serial.print(";");
   serial.flush();
-}  
+#endif
+}
 
-void ack()
+void printSuccess(command_t command)
 {
-  serial.print(".");
+#ifdef HAS_SUCCESS_PRINTING
+  serial.print("ok");
+  serial.print(command);
+  serial.print(";");
   serial.flush();
+#endif
+}
+
+bool DAC_would_overflow(uint8_t num_bits)
+{
+  return DAC_data == (1 << num_bits) - 1;
+}
+
+bool DAC_would_underflow()
+{
+  return DAC_data == 0;
 }
 
 void set_DAC_bits(uint8_t bits)
 {
   bool use_2x_gain = true;
-  voltageDAC.setVoltageOutputBits(DAC_bits, use_2x_gain);
+  voltageDAC.setVoltageOutputBits(bits, use_2x_gain);
 }
 
-bool DAC_would_overflow(uint8_t num_bits)
-{
-  return DAC_bits == (1 << num_bits);
-}
-
-bool DAC_would_underflow()
-{
-  return DAC_bits == 0;
-}
-
-bool increment_output_voltage()
+#ifdef HAS_INCREMENT_COMMAND
+error_t increment_output_voltage()
 {
   if (DAC_would_overflow(DAC_num_bits))
   {
-    return false;
+    return ERROR_INCREMENT_WOULD_CAUSE_OVERFLOW;
   }
 
-  DAC_bits++;
-  set_DAC_bits(DAC_bits);
-  return true;
+  DAC_data++;
+  set_DAC_bits(DAC_data);
+  return OK_NO_ERROR;
 }
+#endif
 
-bool decrement_output_voltage()
+#ifdef HAS_DECREMENT_COMMAND
+error_t decrement_output_voltage()
 {
   if (DAC_would_underflow())
   {
-    return false;
+    return ERROR_DECREMENT_WOULD_CAUSE_UNDERFLOW;
   }
 
-  DAC_bits--;
-  set_DAC_bits(DAC_bits);
-  return true;
+  DAC_data--;
+  set_DAC_bits(DAC_data);
+  return OK_NO_ERROR;
 }
+#endif
 
-bool parse_and_run_voltage_command(char *buffer)
+#ifdef HAS_VOLTS_COMMAND
+error_t parse_and_run_voltage_command(char *buffer)
 {
-  float v = 0;
-  int num_matches_found = sscanf(buffer, "%f", &v);
-  if (num_matches_found != 1)
-  {
-    return false;
-  }
+  float v = atof(buffer);
   
-  voltageDAC.setVoltageOutput(v);
-  return true;
+  // debug
+  serial.println();
+  serial.print("parsed volts: ");
+  serial.println(v);
+  serial.flush();
+  
+  DAC_data = voltageDAC.setVoltageOutput(v);
+  return OK_NO_ERROR;
 }
+#endif
 
-bool parse_and_run_hex_command(char *buffer)
+#ifdef HAS_HEX_COMMAND
+error_t parse_and_run_hex_command(char *buffer)
 {
   uint16_t bits = 0;
   int num_matches_found = sscanf(buffer, "%x", &bits);
   if (num_matches_found != 1)
   {
-    return false;
+    return ERROR_PARSING_HEX_VALUE;
   }
 
-  DAC_bits = bits;
-  set_DAC_bits(DAC_bits);
-  return true;
+  DAC_data = bits;
+  set_DAC_bits(DAC_data);
+  return OK_NO_ERROR;
 }
+#endif
 
