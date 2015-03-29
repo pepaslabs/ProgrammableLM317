@@ -15,12 +15,14 @@
 
 // --- Feature toggles
 
-#define HAS_INCREMENT_COMMAND
-#define HAS_DECREMENT_COMMAND
+#define HAS_BOOT_MESSAGE
+//#define HAS_INCREMENT_COMMAND
+//#define HAS_DECREMENT_COMMAND
 #define HAS_VOLTS_COMMAND
-#define HAS_HEX_COMMAND
-//#define HAS_ERROR_PRINTING
-//#define HAS_SUCCESS_PRINTING
+#define HAS_VOLTS_COMMAND_DEBUGGING
+//#define HAS_HEX_COMMAND
+#define HAS_ERROR_PRINTING
+#define HAS_SUCCESS_PRINTING
 
 
 // ATiny85 pinout:
@@ -116,18 +118,24 @@ Decrease the DAC output by one LSB:
 */
 
 #define MIN_EXPECTED_LEN 2 // +;
-#define MAX_EXPECTED_LEN 8 // v12.345;
+#define MAX_EXPECTED_LEN 9 // v12.3456;
 
 #define BUFF_LEN (MAX_EXPECTED_LEN + sizeof('\0'))
 char buffer[BUFF_LEN];
 char *buff_ptr;
 
+
 void setup()
 {
-  delay(1);
   serial.begin(9600);
-  serial.print("OK;");
-  serial.flush();
+
+  #ifdef HAS_BOOT_MESSAGE
+  {
+    delay(1);
+    serial.print("OK;");
+    serial.flush();
+  }
+  #endif
   
   // start up the SPI bus
   mySPI.begin();
@@ -141,46 +149,75 @@ void setup()
   buff_ptr = buffer;
 }
 
+
 void loop()
 {
   command_t command = read_command(&serial, buffer, BUFF_LEN);
   if (command >= END_OF_COMMANDS_SECTION)
   {
+    #ifdef HAS_ERROR_PRINTING
     printError(command);
+    #endif
     return;
   }
 
   error_t error;
   
-  if (command == COMMAND_INCREMENT)
+  switch(command)
   {
-    error = increment_output_voltage();
+    
+    #ifdef HAS_INCREMENT_COMMAND
+    case COMMAND_INCREMENT:
+    {
+      error = increment_output_voltage();
+      break;
+    }
+    #endif
+  
+    #ifdef HAS_DECREMENT_COMMAND
+    case COMMAND_DECREMENT:
+    {
+      error = decrement_output_voltage();
+      break;
+    }
+    #endif
+  
+    #ifdef HAS_VOLTS_COMMAND
+    case COMMAND_SET_VOLTS:
+    {
+      error = parse_and_run_voltage_command(buffer);
+      break;
+    }
+    #endif
+  
+    #ifdef HAS_HEX_COMMAND
+    case COMMAND_SET_HEX:
+    {
+      error = parse_and_run_hex_command(buffer);
+      break;
+    }
+    #endif
+  
+    default:
+    {
+      error = ERROR_UNKNOWN_COMMAND;
+      break;
+    }
   }
-  else if (command == COMMAND_DECREMENT)
-  {
-    error = decrement_output_voltage();
-  }
-  else if (command == COMMAND_SET_VOLTS)
-  {
-    error = parse_and_run_voltage_command(buffer);
-  }
-  else if (command == COMMAND_SET_HEX)
-  {
-    error = parse_and_run_hex_command(buffer);
-  }
-  else
-  {
-    error = ERROR_UNKNOWN_COMMAND;
-  }
-
+  
   if (error != OK_NO_ERROR)
   {
+    #ifdef HAS_ERROR_PRINTING
     printError(error);
+    #endif
     return;
   }
   
+  #ifdef HAS_SUCCESS_PRINTING
   printSuccess(command);
+  #endif
 }
+
 
 command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
 {
@@ -193,66 +230,83 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     
   char ch = serial->read();
   
-  if (ch == '+')
+  switch(ch)
   {
-    uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
-    if (num_chars_consumed == 1)
+    #ifdef HAS_INCREMENT_COMMAND
+    case '+':
     {
-      return COMMAND_INCREMENT;
+      uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
+      if (num_chars_consumed == 1)
+      {
+        return COMMAND_INCREMENT;
+      }
+      else
+      {
+        return ERROR_PARSING_INCREMENT_COMMAND;
+      }
     }
-    else
-    {
-      return ERROR_PARSING_INCREMENT_COMMAND;
-    }
-  }
-  else if (ch == '-')
-  {
-    uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
-    if (num_chars_consumed == 1)
-    {
-      return COMMAND_DECREMENT;
-    }
-    else
-    {
-      return ERROR_PARSING_DECREMENT_COMMAND;
-    }
-  }
-  else if (ch == 'x')
-  {
-    // prepend buffer with '0x'
-    buffer[0] = '0';
-    buffer[1] = 'x';
-    buff_ptr = buffer+2;
+    #endif
     
-    // read the hex characters into buffer
-    error_t error = read_until_sentinel(serial, buffer, buff_len-2, ';');    
-    if (error == OK_NO_ERROR)
+    #ifdef HAS_DECREMENT_COMMAND
+    case '-':
     {
-      return COMMAND_SET_HEX;
+      uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
+      if (num_chars_consumed == 1)
+      {
+        return COMMAND_DECREMENT;
+      }
+      else
+      {
+        return ERROR_PARSING_DECREMENT_COMMAND;
+      }
     }
-    else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-    {      
-      return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_HEX_COMMAND;
-    }
-  }
-  else if (ch == 'v')
-  {
-    // read the floating point string into buffer
-    error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
-    if (error == OK_NO_ERROR)
+    #endif
+    
+    #ifdef HAS_HEX_COMMAND
+    case 'x':
     {
-      return COMMAND_SET_VOLTS;
+      // prepend buffer with '0x'
+      buffer[0] = '0';
+      buffer[1] = 'x';
+      buff_ptr = buffer+2;
+    
+      // read the hex characters into buffer
+      error_t error = read_until_sentinel(serial, buffer, buff_len-2, ';');    
+      if (error == OK_NO_ERROR)
+      {
+        return COMMAND_SET_HEX;
+      }
+      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+      {      
+        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_HEX_COMMAND;
+      }
     }
-    else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-    {      
-      return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VOLTS_COMMAND;
+    #endif
+
+    #ifdef HAS_VOLTS_COMMAND
+    case 'v':
+    {
+      // read the floating point string into buffer
+      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      if (error == OK_NO_ERROR)
+      {
+        return COMMAND_SET_VOLTS;
+      }
+      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+      {      
+        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VOLTS_COMMAND;
+      }
     }
-  }
-  else
-  {
-    return ERROR_UNKNOWN_COMMAND;
+    #endif
+    
+    
+    default:
+    {
+      return ERROR_UNKNOWN_COMMAND;
+    }
   }
 }
+
 
 uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
 {
@@ -274,6 +328,7 @@ uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
     }
   }
 }
+
 
 error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len, char sentinel)
 {
@@ -308,41 +363,29 @@ error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_l
   }
 }
 
-void printError(error_t error)
-{
-#ifdef HAS_ERROR_PRINTING
-  serial.print("!e");
-  serial.print(error);
-  serial.print(";");
-  serial.flush();
-#endif
-}
-
-void printSuccess(command_t command)
-{
-#ifdef HAS_SUCCESS_PRINTING
-  serial.print("ok");
-  serial.print(command);
-  serial.print(";");
-  serial.flush();
-#endif
-}
-
-bool DAC_would_overflow(uint8_t num_bits)
-{
-  return DAC_data == (1 << num_bits) - 1;
-}
-
-bool DAC_would_underflow()
-{
-  return DAC_data == 0;
-}
 
 void set_DAC_bits(uint8_t bits)
 {
   bool use_2x_gain = true;
   voltageDAC.setVoltageOutputBits(bits, use_2x_gain);
 }
+
+
+#ifdef HAS_INCREMENT_COMMAND
+bool DAC_would_overflow(uint8_t num_bits)
+{
+  return DAC_data == (1 << num_bits) - 1;
+}
+#endif
+
+
+#ifdef HAS_DECREMENT_COMMAND
+bool DAC_would_underflow()
+{
+  return DAC_data == 0;
+}
+#endif
+
 
 #ifdef HAS_INCREMENT_COMMAND
 error_t increment_output_voltage()
@@ -358,6 +401,7 @@ error_t increment_output_voltage()
 }
 #endif
 
+
 #ifdef HAS_DECREMENT_COMMAND
 error_t decrement_output_voltage()
 {
@@ -372,21 +416,26 @@ error_t decrement_output_voltage()
 }
 #endif
 
+
 #ifdef HAS_VOLTS_COMMAND
 error_t parse_and_run_voltage_command(char *buffer)
 {
   float v = atof(buffer);
   
-  // debug
-  serial.println();
-  serial.print("parsed volts: ");
-  serial.println(v);
-  serial.flush();
+  #ifdef HAS_VOLTS_COMMAND_DEBUGGING
+  {
+    serial.println();
+    serial.print("parsed volts: ");
+    serial.println(v, 4);
+    serial.flush();
+  }
+  #endif
   
   DAC_data = voltageDAC.setVoltageOutput(v);
   return OK_NO_ERROR;
 }
 #endif
+
 
 #ifdef HAS_HEX_COMMAND
 error_t parse_and_run_hex_command(char *buffer)
@@ -401,6 +450,28 @@ error_t parse_and_run_hex_command(char *buffer)
   DAC_data = bits;
   set_DAC_bits(DAC_data);
   return OK_NO_ERROR;
+}
+#endif
+
+
+#ifdef HAS_ERROR_PRINTING
+void printError(error_t error)
+{
+  serial.print("!e");
+  serial.print(error);
+  serial.print(";");
+  serial.flush();
+}
+#endif
+
+
+#ifdef HAS_SUCCESS_PRINTING
+void printSuccess(command_t command)
+{
+  serial.print("ok");
+  serial.print(command);
+  serial.print(";");
+  serial.flush();
 }
 #endif
 
