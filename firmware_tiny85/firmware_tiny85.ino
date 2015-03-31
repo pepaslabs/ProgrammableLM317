@@ -1,5 +1,5 @@
 /*
-  ATtiny85SerialHello.ino: Repeatedly print "hello" and blink an LED.
+  firmware_tiny85.ino: Arduino sketch for the Programmable LM317 project.  See https://github.com/pepaslabs/ProgrammableLM317
   Copyright Jason Pepas (Pepas Labs, LLC)
   Released under the terms of the MIT License.  See http://opensource.org/licenses/MIT
 */
@@ -7,85 +7,65 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
+#include "features.h"
+
 #include <SoftwareSerial.h>
-#include <WOTinySoftSPI.h>
-#include <MCP4801SoftSPI.h>
 
-#include "command_t.h"
+#include "buffer.h"
+#include "pins.h"
+#include "SPI_util.h"
+#include "DAC_util.h"
+#include "MCP4821.h"
 
-// --- Feature toggles
-
-#define HAS_BOOT_MESSAGE
-//#define HAS_INCREMENT_COMMAND
-//#define HAS_DECREMENT_COMMAND
-#define HAS_VOLTS_COMMAND
-#define HAS_VOLTS_COMMAND_DEBUGGING
-//#define HAS_HEX_COMMAND
-#define HAS_ERROR_PRINTING
-#define HAS_SUCCESS_PRINTING
+#include "command.h"
 
 
-// ATiny85 pinout:
+// ATtiny85 pinout:
 //
-//                                      +--\/--+
-//        (PCINT5/!RESET/ADC0/dW) PB5  -|1    8|-  VCC
-// (PCINT3/XTAL1/CLKI/!OC1B/ADC3) PB3  -|2    7|-  PB2 (SCK/USCK/SCL/ADC1/T0/INT0/PCINT2)
-//  (PCINT4/XTAL2/CLKO/OC1B/ADC2) PB4  -|3    6|-  PB1 (MISO/DO/AIN1/OC0B/OC1A/PCINT1)
-//                                GND  -|4    5|-  PB0 (MOSI/DI/SDA/AIN0/OC0A/!OC1A/AREF/PCINT0)
-//                                      +------+
+//                            +--\/--+
+//                       D5  -|1    8|-  Vcc   (to 5V)
+//      TTL serial RX    D3  -|2    7|-  D2    SPI CS (to DAC CS, pin 2)
+//      TTL serial TX    D4  -|3    6|-  D1    SPI SCK (to DAC SCK, pin 3)
+//                      GND  -|4    5|-  D0    SPI MOSI (to DAC SDI, pin 4)
+//                            +------+
 
-#define ARDUINO_PIN_D0 0
-#define ARDUINO_PIN_D1 1
-#define ARDUINO_PIN_D2 2
-#define ARDUINO_PIN_D3 3
-#define ARDUINO_PIN_D4 4
-#define ARDUINO_PIN_D5 5
-
-#define ATTINY_PIN_1 ARDUINO_PIN_D5
-#define ATTINY_PIN_2 ARDUINO_PIN_D3
-#define ATTINY_PIN_3 ARDUINO_PIN_D4
-#define ATTINY_PIN_5 ARDUINO_PIN_D0
-#define ATTINY_PIN_6 ARDUINO_PIN_D1
-#define ATTINY_PIN_7 ARDUINO_PIN_D2
-
-// project pinout:
+// MCP4821 pinout:
 //
-//                      +--\/--+
-//                 D5  -|1    8|-  Vcc
-//  TTL serial RX  D3  -|2    7|-  D2  SPI chip select (to DAC)
-//  TTL serial TX  D4  -|3    6|-  D1  SPI SCK (to DAC)
-//                GND  -|4    5|-  D0  SPI MOSI (to DAC)
-//                      +------+
+//                            +--\/--+
+//             (to 5V)  Vcc  -|1    8|-  Vout
+//   (to tiny85 pin 5)  ~CS  -|2    7|-  GND
+//   (to tiny85 pin 7)  SCK  -|3    6|-  ~SHDN  (to 5V)
+//   (to tiny85 pin 6)  SDI  -|4    5|-  ~LDAC  (to GND)
+//                            +------+
 
-#define SoftSPI_MOSI_pin ARDUINO_PIN_D0
-#define SoftSPI_SCK_pin ARDUINO_PIN_D1
-#define MCP4801_SLAVESELECTLOW_pin ARDUINO_PIN_D2
-#define MCP4801_LDACLOW_pin PIN_NOT_CONNECTED
-#define MCP4801_SHUTDOWNLOW_pin PIN_NOT_CONNECTED
 
-#define RX_pin ARDUINO_PIN_D3
-#define TX_pin ARDUINO_PIN_D4
+// --- DAC / SPI setup:
 
-// --- SPI / MCP4801 DAC setup
 
-WOTinySoftSPI mySPI(SoftSPI_MOSI_pin, SoftSPI_SCK_pin);
+DAC_config_t dac_config = MCP4821_config();
 
-MCP4801SoftSPI voltageDAC(MCP4801_SLAVESELECTLOW_pin,
-                          MCP4801_LDACLOW_pin,
-                          MCP4801_SHUTDOWNLOW_pin,
-                          &mySPI
-                         );
+DAC_data_t dac_data = { .config = &dac_config, .gain = false, .code = 0x0 };
 
-#define MCP4801_NUM_BITS 8
-#define MCP4811_NUM_BITS 10
-#define MCP4821_NUM_BITS 12
 
-uint8_t DAC_num_bits = MCP4801_NUM_BITS;
-uint16_t DAC_data = 0;
+SPI_bus_t spi_bus = { .MOSI_pin = ATTINY85_PIN_5,
+                      .MISO_pin = PIN_NOT_CONNECTED,
+                      .SCK_pin = ATTINY85_PIN_6
+                    };
+                    
+SPI_device_t spi_dac = { .bus = &spi_bus,
+                         .CS_pin = ATTINY85_PIN_7,
+                         .bit_order = MSBFIRST
+                       };
 
-// --- serial port setup
+
+// --- Serial setup:
+
+
+#define RX_pin ATTINY85_PIN_2
+#define TX_pin ATTINY85_PIN_3
 
 SoftwareSerial serial(RX_pin, TX_pin);
+
 
 /*
 
@@ -115,13 +95,16 @@ Decrease the DAC output by one LSB:
 
     -;
 
+FIXME: should I also support 'XFF;', which is the equivalent of 'xFF;' but with gain bit set?
 */
 
-#define MIN_EXPECTED_LEN 2 // +;
-#define MAX_EXPECTED_LEN 9 // v12.3456;
+#define MIN_EXPECTED_BUFF_LEN 2 // "+;"
+#define MAX_EXPECTED_BUFF_LEN 9 // "v12.3456;"
+#define BUFF_LEN (MAX_EXPECTED_BUFF_LEN + sizeof('\0'))
 
-#define BUFF_LEN (MAX_EXPECTED_LEN + sizeof('\0'))
-char buffer[BUFF_LEN];
+char buffer_bytes[BUFF_LEN];
+char_buffer_t buffer = { .len = BUFF_LEN, .bytes = buffer_bytes };
+
 char *buff_ptr;
 
 
@@ -137,26 +120,27 @@ void setup()
   }
   #endif
   
-  // start up the SPI bus
-  mySPI.begin();
-  mySPI.setBitOrder(MSBFIRST);
-  mySPI.setDataMode(SPI_MODE0);
+  // setup soft SPI
+  pinMode(spi_bus.MOSI_pin, OUTPUT);
+  pinMode(spi_bus.SCK_pin, OUTPUT);
+  pinMode(spi_dac.CS_pin, OUTPUT);
+  
+  digitalWrite(spi_dac.CS_pin, HIGH); // start with the DAC un-selected.
 
-  // start controlling the voltage supply
-  voltageDAC.begin();  
-
-  memset(buffer, 0, sizeof(buffer));
-  buff_ptr = buffer;
+  clear_char_buffer(&buffer);
+  buff_ptr = (buffer.bytes); // FIXME can I delete this?
 }
 
 
 void loop()
 {
-  command_t command = read_command(&serial, buffer, BUFF_LEN);
+  command_t command = read_command(&serial, buffer.bytes, buffer.len);
   if (command >= END_OF_COMMANDS_SECTION)
   {
     #ifdef HAS_ERROR_PRINTING
-    printError(command);
+    {
+      printError(command);
+    }
     #endif
     return;
   }
@@ -169,7 +153,7 @@ void loop()
     #ifdef HAS_INCREMENT_COMMAND
     case COMMAND_INCREMENT:
     {
-      error = increment_output_voltage();
+      error = increment_output_voltage(&dac_data, &spi_dac);
       break;
     }
     #endif
@@ -177,7 +161,7 @@ void loop()
     #ifdef HAS_DECREMENT_COMMAND
     case COMMAND_DECREMENT:
     {
-      error = decrement_output_voltage();
+      error = decrement_output_voltage(&dac_data, &spi_dac);
       break;
     }
     #endif
@@ -185,7 +169,7 @@ void loop()
     #ifdef HAS_VOLTS_COMMAND
     case COMMAND_SET_VOLTS:
     {
-      error = parse_and_run_voltage_command(buffer);
+      error = parse_and_run_voltage_command(buffer.bytes, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -193,7 +177,7 @@ void loop()
     #ifdef HAS_HEX_COMMAND
     case COMMAND_SET_HEX:
     {
-      error = parse_and_run_hex_command(buffer);
+      error = parse_and_run_hex_command(buffer.bytes, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -208,13 +192,17 @@ void loop()
   if (error != OK_NO_ERROR)
   {
     #ifdef HAS_ERROR_PRINTING
-    printError(error);
+    {
+      printError(error);
+    }
     #endif
     return;
   }
   
   #ifdef HAS_SUCCESS_PRINTING
-  printSuccess(command);
+  {
+    printSuccess(command);
+  }
   #endif
 }
 
@@ -364,91 +352,90 @@ error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_l
 }
 
 
-void set_DAC_bits(uint8_t bits)
+void send_dac_data(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  bool use_2x_gain = true;
-  voltageDAC.setVoltageOutputBits(bits, use_2x_gain);
+  MCP4821_packet_t packet = dac_data_as_MCP4821_packet(dac_data);
+  spi_write_MCP4821_packet(spi_dac, packet);
 }
 
 
 #ifdef HAS_INCREMENT_COMMAND
-bool DAC_would_overflow(uint8_t num_bits)
+error_t increment_output_voltage(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  return DAC_data == (1 << num_bits) - 1;
-}
-#endif
-
-
-#ifdef HAS_DECREMENT_COMMAND
-bool DAC_would_underflow()
-{
-  return DAC_data == 0;
-}
-#endif
-
-
-#ifdef HAS_INCREMENT_COMMAND
-error_t increment_output_voltage()
-{
-  if (DAC_would_overflow(DAC_num_bits))
+  if (dac_data_increment_code(dac_data) == false)
   {
     return ERROR_INCREMENT_WOULD_CAUSE_OVERFLOW;
   }
 
-  DAC_data++;
-  set_DAC_bits(DAC_data);
+  send_dac_data(dac_data, spi_dac);
   return OK_NO_ERROR;
 }
 #endif
 
 
 #ifdef HAS_DECREMENT_COMMAND
-error_t decrement_output_voltage()
+error_t decrement_output_voltage(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  if (DAC_would_underflow())
+  if (dac_data_decrement_code(dac_data) == false)
   {
     return ERROR_DECREMENT_WOULD_CAUSE_UNDERFLOW;
   }
 
-  DAC_data--;
-  set_DAC_bits(DAC_data);
+  send_dac_data(dac_data, spi_dac);
   return OK_NO_ERROR;
 }
 #endif
 
 
 #ifdef HAS_VOLTS_COMMAND
-error_t parse_and_run_voltage_command(char *buffer)
+error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  float v = atof(buffer);
+  float volts = atof(buffer);
   
   #ifdef HAS_VOLTS_COMMAND_DEBUGGING
   {
     serial.println();
     serial.print("parsed volts: ");
-    serial.println(v, 4);
+    serial.println(volts, 4);
     serial.flush();
   }
   #endif
+
+  if (volts < 0)
+  {
+    return ERROR_PARSED_VOLTAGE_OUTSIDE_SUPPORTED_RANGE;
+  }
+    
+  if (dac_data_set_voltage(dac_data, volts) == false)
+  {
+    return ERROR_PARSED_VOLTAGE_OUTSIDE_SUPPORTED_RANGE;
+  }
   
-  DAC_data = voltageDAC.setVoltageOutput(v);
+  MCP4821_packet_t packet = dac_data_as_MCP4821_packet(dac_data);
+  spi_write_MCP4821_packet(spi_dac, packet);
+  
   return OK_NO_ERROR;
 }
 #endif
 
 
 #ifdef HAS_HEX_COMMAND
-error_t parse_and_run_hex_command(char *buffer)
+error_t parse_and_run_hex_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  uint16_t bits = 0;
-  int num_matches_found = sscanf(buffer, "%x", &bits);
+  uint16_t new_code = 0;
+  
+  int num_matches_found = sscanf(buffer, "%x", &new_code);
   if (num_matches_found != 1)
   {
     return ERROR_PARSING_HEX_VALUE;
   }
 
-  DAC_data = bits;
-  set_DAC_bits(DAC_data);
+  if (dac_data_set_code(dac_data, new_code) == false)
+  {
+    return ERROR_PARSED_HEX_OUTSIDE_SUPPORTED_RANGE;
+  }
+  
+  send_dac_data(dac_data, spi_dac);
   return OK_NO_ERROR;
 }
 #endif

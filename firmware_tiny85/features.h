@@ -1,0 +1,16 @@
+#ifndef _FEATURES_H_
+#define _FEATURES_H_
+
+//#define HAS_HARDWARE_SPI
+//#define HAS_USI_SPI
+
+//#define HAS_BOOT_MESSAGE
+//#define HAS_INCREMENT_COMMAND
+//#define HAS_DECREMENT_COMMAND
+#define HAS_VOLTS_COMMAND
+#define HAS_VOLTS_COMMAND_DEBUGGING
+//#define HAS_HEX_COMMAND
+//#define HAS_ERROR_PRINTING
+//#define HAS_SUCCESS_PRINTING
+
+#endif
