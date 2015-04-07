@@ -87,6 +87,14 @@ Set the bits in the DAC to 0xFFF (12-bit DAC):
 
     xFFF;
 
+Set the DAC output code to 255, no gain:
+
+    c255;
+
+Set the DAC output code to 4095 (12-bit DAC), with 2x gain:
+
+    C4095;
+
 Increase the DAC output by one LSB:
 
     +;
@@ -182,6 +190,14 @@ void loop()
     }
     #endif
   
+    #ifdef HAS_CODE_COMMAND
+    case COMMAND_SET_CODE:
+    {
+      error = parse_and_run_code_command(buffer.bytes, &dac_data, &spi_dac);
+      break;
+    }
+    #endif
+  
     default:
     {
       error = ERROR_UNKNOWN_COMMAND;
@@ -258,7 +274,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
       buffer[1] = 'x';
       buff_ptr = buffer+2;
     
-      // read the hex characters into buffer
+      // read the hex characters into the buffer
       error_t error = read_until_sentinel(serial, buffer, buff_len-2, ';');    
       if (error == OK_NO_ERROR)
       {
@@ -274,7 +290,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     #ifdef HAS_VOLTS_COMMAND
     case 'v':
     {
-      // read the floating point string into buffer
+      // read the floating point string into the buffer
       error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
       if (error == OK_NO_ERROR)
       {
@@ -283,6 +299,23 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
       else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
       {      
         return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VOLTS_COMMAND;
+      }
+    }
+    #endif
+    
+    
+    #ifdef HAS_VOLTS_COMMAND
+    case 'c':
+    {
+      // read the code string into the buffer
+      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      if (error == OK_NO_ERROR)
+      {
+        return COMMAND_SET_CODE;
+      }
+      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+      {      
+        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_CODE_COMMAND;
       }
     }
     #endif
@@ -386,27 +419,31 @@ error_t decrement_output_voltage(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 }
 #endif
 
+#define LM317_VREF 1.25
+#define GAIN 4.3
 
 #ifdef HAS_VOLTS_COMMAND
 error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  float volts = atof(buffer);
+  float output_volts = atof(buffer);
   
   #ifdef HAS_VOLTS_COMMAND_DEBUGGING
   {
     serial.println();
     serial.print("parsed volts: ");
-    serial.println(volts, 4);
+    serial.println(output_volts, 4);
     serial.flush();
   }
   #endif
 
-  if (volts < 0)
+  if (output_volts < 0)
   {
     return ERROR_PARSED_VOLTAGE_OUTSIDE_SUPPORTED_RANGE;
   }
+  
+  float DAC_volts = (output_volts - LM317_VREF) / GAIN;
     
-  if (dac_data_set_voltage(dac_data, volts) == false)
+  if (dac_data_set_voltage(dac_data, DAC_volts) == false)
   {
     return ERROR_PARSED_VOLTAGE_OUTSIDE_SUPPORTED_RANGE;
   }
@@ -433,6 +470,28 @@ error_t parse_and_run_hex_command(char *buffer, DAC_data_t *dac_data, SPI_device
   if (dac_data_set_code(dac_data, new_code) == false)
   {
     return ERROR_PARSED_HEX_OUTSIDE_SUPPORTED_RANGE;
+  }
+  
+  send_dac_data(dac_data, spi_dac);
+  return OK_NO_ERROR;
+}
+#endif
+
+
+#ifdef HAS_CODE_COMMAND
+error_t parse_and_run_code_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+{
+  uint16_t new_code = 0;
+  
+  int num_matches_found = sscanf(buffer, "%u", &new_code);
+  if (num_matches_found != 1)
+  {
+    return ERROR_PARSING_CODE_VALUE;
+  }
+
+  if (dac_data_set_code(dac_data, new_code) == false)
+  {
+    return ERROR_PARSED_CODE_OUTSIDE_SUPPORTED_RANGE;
   }
   
   send_dac_data(dac_data, spi_dac);
