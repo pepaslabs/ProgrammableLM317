@@ -103,6 +103,14 @@ Decrease the DAC output by one LSB:
 
     -;
 
+Calibrate the (op amp) gain:
+
+    g4.3;
+
+Calibrate the LM317 VREF:
+
+    r1.25;
+
 FIXME: should I also support 'XFF;', which is the equivalent of 'xFF;' but with gain bit set?
 */
 
@@ -114,6 +122,10 @@ char buffer_bytes[BUFF_LEN];
 char_buffer_t buffer = { .len = BUFF_LEN, .bytes = buffer_bytes };
 
 char *buff_ptr;
+
+
+float LM317_vref = 1.25;
+float op_amp_gain = 4.3;
 
 
 void setup()
@@ -194,6 +206,22 @@ void loop()
     case COMMAND_SET_CODE:
     {
       error = parse_and_run_code_command(buffer.bytes, &dac_data, &spi_dac);
+      break;
+    }
+    #endif
+
+    #ifdef HAS_CALIBRATE_OP_AMP_GAIN
+    case COMMAND_CALIBRATE_OP_AMP_GAIN:
+    {
+      error = parse_and_run_calibrate_gain_command(buffer.bytes, &dac_data, &spi_dac);
+      break;
+    }
+    #endif
+  
+    #ifdef HAS_CALIBRATE_LM317_VREF
+    case COMMAND_CALIBRATE_LM317_VREF:
+    {
+      error = parse_and_run_calibrate_vref_command(buffer.bytes, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -304,7 +332,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     #endif
     
     
-    #ifdef HAS_VOLTS_COMMAND
+    #ifdef HAS_CODE_COMMAND
     case 'c':
     {
       // read the code string into the buffer
@@ -419,8 +447,6 @@ error_t decrement_output_voltage(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 }
 #endif
 
-#define LM317_VREF 1.25
-#define GAIN 4.3
 
 #ifdef HAS_VOLTS_COMMAND
 error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
@@ -441,7 +467,7 @@ error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_de
     return ERROR_PARSED_VOLTAGE_OUTSIDE_SUPPORTED_RANGE;
   }
   
-  float DAC_volts = (output_volts - LM317_VREF) / GAIN;
+  float DAC_volts = (output_volts - LM317_vref) / op_amp_gain;
     
   if (dac_data_set_voltage(dac_data, DAC_volts) == false)
   {
@@ -496,6 +522,56 @@ error_t parse_and_run_code_command(char *buffer, DAC_data_t *dac_data, SPI_devic
   
   send_dac_data(dac_data, spi_dac);
   return OK_NO_ERROR;
+}
+#endif
+
+
+#ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
+error_t parse_and_run_calibrate_gain_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+{
+  float new_gain = atof(buffer);
+  
+  #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND_DEBUGGING
+  {
+    serial.println();
+    serial.print("parsed gain: ");
+    serial.println(new_gain, 4);
+    serial.flush();
+  }
+  #endif
+  
+  if (new_gain < 1.0)
+  {
+    return ERROR_PARSED_GAIN_OUTSIDE_SUPPORTED_RANGE;
+  }
+  
+  op_amp_gain = new_gain;
+  return OK_NO_ERROR;  
+}
+#endif
+
+
+#ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
+error_t parse_and_run_calibrate_vref_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+{
+  float new_vref = atof(buffer);
+  
+  #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND_DEBUGGING
+  {
+    serial.println();
+    serial.print("parsed vref: ");
+    serial.println(new_vref, 4);
+    serial.flush();
+  }
+  #endif
+  
+  if (new_vref < 0)
+  {
+    return ERROR_PARSED_VREF_OUTSIDE_SUPPORTED_RANGE;
+  }
+  
+  LM317_vref = new_vref;
+  return OK_NO_ERROR;  
 }
 #endif
 
