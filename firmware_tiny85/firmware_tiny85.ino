@@ -210,7 +210,7 @@ void loop()
     }
     #endif
 
-    #ifdef HAS_CALIBRATE_OP_AMP_GAIN
+    #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
     case COMMAND_CALIBRATE_OP_AMP_GAIN:
     {
       error = parse_and_run_calibrate_gain_command(buffer.bytes, &dac_data, &spi_dac);
@@ -218,7 +218,7 @@ void loop()
     }
     #endif
   
-    #ifdef HAS_CALIBRATE_LM317_VREF
+    #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
     case COMMAND_CALIBRATE_LM317_VREF:
     {
       error = parse_and_run_calibrate_vref_command(buffer.bytes, &dac_data, &spi_dac);
@@ -344,6 +344,40 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
       else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
       {      
         return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_CODE_COMMAND;
+      }
+    }
+    #endif
+    
+    
+    #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
+    case 'g':
+    {
+      // read the gain string into the buffer
+      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      if (error == OK_NO_ERROR)
+      {
+        return COMMAND_CALIBRATE_OP_AMP_GAIN;
+      }
+      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+      {      
+        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_GAIN_COMMAND;
+      }
+    }
+    #endif
+    
+    
+    #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
+    case 'r':
+    {
+      // read the vref string into the buffer
+      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      if (error == OK_NO_ERROR)
+      {
+        return COMMAND_CALIBRATE_LM317_VREF;
+      }
+      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
+      {      
+        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VREF_COMMAND;
       }
     }
     #endif
