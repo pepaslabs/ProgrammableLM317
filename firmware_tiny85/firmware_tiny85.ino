@@ -124,17 +124,73 @@ char_buffer_t buffer = { .len = BUFF_LEN, .bytes = buffer_bytes };
 char *buff_ptr;
 
 
+// --- EEPROM
+
+
 float LM317_vref = 1.25;
 float op_amp_gain = 4.3;
+
+#ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
+
+uint8_t EEMEM eeprom_has_been_initialized_token_address;
+#define EEPROM_HAS_BEEN_INITIALIZED_CODE 42
+
+float EEMEM LM317_vref_EEPROM_address;
+
+float EEMEM op_amp_gain_EEPROM_address;
+
+
+bool eeprom_has_been_initialized()
+{
+  uint8_t has_been_initialized_token = eeprom_read_byte(&eeprom_has_been_initialized_token_address);
+  return (has_been_initialized_token == EEPROM_HAS_BEEN_INITIALIZED_CODE);
+}
+
+
+void initialize_eeprom()
+{
+  eeprom_write_byte(&eeprom_has_been_initialized_token_address, EEPROM_HAS_BEEN_INITIALIZED_CODE);
+  eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
+  eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
+}
+
+
+void load_values_from_eeprom()
+{
+  LM317_vref = eeprom_read_float(&LM317_vref_EEPROM_address);
+  op_amp_gain = eeprom_read_float(&op_amp_gain_EEPROM_address);
+}
+
+
+void bootstrap_EEPROM()
+{
+  if (eeprom_has_been_initialized() == false)
+  {
+    initialize_eeprom();
+  }
+  else
+  {
+    load_values_from_eeprom();
+  }
+}
+
+#endif // HAS_EEPROM_BACKED_CALIBRATION_VALUES
+
+
+// ---
 
 
 void setup()
 {
+  #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
+  bootstrap_EEPROM();
+  #endif
+  
   serial.begin(9600);
 
   #ifdef HAS_BOOT_MESSAGE
   {
-    delay(1);
+    delay(10);
     serial.print("OK;");
     serial.flush();
   }
@@ -580,6 +636,11 @@ error_t parse_and_run_calibrate_gain_command(char *buffer, DAC_data_t *dac_data,
   }
   
   op_amp_gain = new_gain;
+  
+  #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
+  eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
+  #endif
+  
   return OK_NO_ERROR;  
 }
 #endif
@@ -605,6 +666,11 @@ error_t parse_and_run_calibrate_vref_command(char *buffer, DAC_data_t *dac_data,
   }
   
   LM317_vref = new_vref;
+  
+  #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
+  eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
+  #endif
+  
   return OK_NO_ERROR;  
 }
 #endif
