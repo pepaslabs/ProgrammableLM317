@@ -169,7 +169,9 @@ void bootstrap_EEPROM()
 void setup()
 {
   #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
-  bootstrap_EEPROM();
+  {
+    bootstrap_EEPROM();
+  }
   #endif
   
   serial.begin(9600);
@@ -203,6 +205,7 @@ void loop()
       printError(command);
     }
     #endif
+    
     return;
   }
 
@@ -273,6 +276,7 @@ void loop()
       printError(error);
     }
     #endif
+    
     return;
   }
   
@@ -343,7 +347,6 @@ command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
     }
     #endif
     
-    
     #ifdef HAS_CODE_COMMAND
     case 'c':
     {
@@ -359,7 +362,6 @@ command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
       }
     }
     #endif
-    
     
     #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
     case 'g':
@@ -377,7 +379,6 @@ command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
     }
     #endif
     
-    
     #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
     case 'r':
     {
@@ -393,7 +394,6 @@ command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
       }
     }
     #endif
-    
     
     default:
     {
@@ -572,7 +572,9 @@ error_t parse_and_run_calibrate_gain_command(char_buffer_t *buffer, DAC_data_t *
   op_amp_gain = new_gain;
   
   #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
-  eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
+  {
+    eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
+  }
   #endif
   
   return OK_NO_ERROR;  
@@ -602,7 +604,9 @@ error_t parse_and_run_calibrate_vref_command(char_buffer_t *buffer, DAC_data_t *
   LM317_vref = new_vref;
   
   #ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
-  eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
+  {
+    eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
+  }
   #endif
   
   return OK_NO_ERROR;  
