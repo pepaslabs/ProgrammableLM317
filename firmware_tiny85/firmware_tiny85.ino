@@ -179,7 +179,7 @@ void setup()
   #ifdef HAS_BOOT_MESSAGE
   {
     delay(10);
-    serial.print("OK;");
+    serial.print("LM317 OK;");
     serial.flush();
   }
   #endif
@@ -298,128 +298,60 @@ command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
   }
     
   char ch = serial->read();
+
+  error_t error = read_until_sentinel(serial, buffer, ';');
+  if (error != OK_NO_ERROR)
+  {
+    return error;
+  }
   
   switch(ch)
   {
     #ifdef HAS_INCREMENT_COMMAND
     case '+':
     {
-      uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
-      if (num_chars_consumed == 1)
-      {
-        return COMMAND_INCREMENT;
-      }
-      else
-      {
-        return ERROR_PARSING_INCREMENT_COMMAND;
-      }
+      return COMMAND_INCREMENT;
     }
     #endif
     
     #ifdef HAS_DECREMENT_COMMAND
     case '-':
     {
-      uint8_t num_chars_consumed = consume_until_sentinel(serial, ';');
-      if (num_chars_consumed == 1)
-      {
-        return COMMAND_DECREMENT;
-      }
-      else
-      {
-        return ERROR_PARSING_DECREMENT_COMMAND;
-      }
+      return COMMAND_DECREMENT;
     }
     #endif
     
     #ifdef HAS_VOLTS_COMMAND
     case 'v':
     {
-      // read the floating point string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, ';');
-      if (error == OK_NO_ERROR)
-      {
-        return COMMAND_SET_VOLTS;
-      }
-      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-      {      
-        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VOLTS_COMMAND;
-      }
+      return COMMAND_SET_VOLTS;
     }
     #endif
     
     #ifdef HAS_CODE_COMMAND
     case 'c':
     {
-      // read the code string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, ';');
-      if (error == OK_NO_ERROR)
-      {
-        return COMMAND_SET_CODE;
-      }
-      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-      {      
-        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_CODE_COMMAND;
-      }
+      return COMMAND_SET_CODE;
     }
     #endif
     
     #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
     case 'g':
     {
-      // read the gain string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, ';');
-      if (error == OK_NO_ERROR)
-      {
-        return COMMAND_CALIBRATE_OP_AMP_GAIN;
-      }
-      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-      {      
-        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_GAIN_COMMAND;
-      }
+      return COMMAND_CALIBRATE_OP_AMP_GAIN;
     }
     #endif
     
     #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
     case 'r':
     {
-      // read the vref string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, ';');
-      if (error == OK_NO_ERROR)
-      {
-        return COMMAND_CALIBRATE_LM317_VREF;
-      }
-      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-      {      
-        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_VREF_COMMAND;
-      }
+      return COMMAND_CALIBRATE_LM317_VREF;
     }
     #endif
     
     default:
     {
       return ERROR_UNKNOWN_COMMAND;
-    }
-  }
-}
-
-
-uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
-{
-  uint8_t num_chars_consumed = 0;
-  
-  while(true)
-  {
-    while(serial->available() == 0)
-    {
-      continue;
-    }
-    
-    char ch = serial->read();
-    num_chars_consumed++;
-    
-    if (ch == sentinel || num_chars_consumed == UINT8_MAX)
-    {
-      return num_chars_consumed;
     }
   }
 }
@@ -531,13 +463,16 @@ error_t parse_and_run_voltage_command(char_buffer_t *buffer, DAC_data_t *dac_dat
 #ifdef HAS_CODE_COMMAND
 error_t parse_and_run_code_command(char_buffer_t *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  uint16_t new_code = 0;
-  
-  int num_matches_found = sscanf(buffer->bytes, "%u", &new_code);
-  if (num_matches_found != 1)
+  uint16_t new_code = atoi(buffer->bytes);
+
+  #ifdef HAS_CODE_COMMAND_DEBUGGING
   {
-    return ERROR_PARSING_CODE_VALUE;
+    serial.println();
+    serial.print("parsed code: ");
+    serial.println(new_code);
+    serial.flush();
   }
+  #endif
 
   if (dac_data_set_code(dac_data, new_code) == false)
   {
