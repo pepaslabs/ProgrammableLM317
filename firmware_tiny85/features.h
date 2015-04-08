@@ -26,4 +26,6 @@
 
 #define HAS_EEPROM_BACKED_CALIBRATION_VALUES
 
+#define HAS_DUMP_COMMAND
+
 #endif

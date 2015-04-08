@@ -223,6 +223,14 @@ void loop()
     }
     #endif
   
+    #ifdef HAS_DUMP_COMMAND
+    case COMMAND_DUMP:
+    {
+      error = dump(&dac_data);
+      break;
+    }
+    #endif
+    
     default:
     {
       error = ERROR_UNKNOWN_COMMAND;
@@ -581,6 +589,23 @@ void printSuccess(command_t command)
   serial.print(command);
   serial.print(";");
   serial.flush();
+}
+#endif
+
+
+#ifdef HAS_DUMP_COMMAND
+error_t dump(DAC_data_t *dac_data)
+{
+  serial.print("DAC code: ");
+  serial.println(dac_data->code);
+  serial.print("DAC gain: ");
+  serial.println(dac_data->gain);
+  serial.print("LM317 vref: ");
+  serial.println(LM317_vref, 4);
+  serial.print("op amp gain: ");
+  serial.println(op_amp_gain, 4);
+  serial.flush();
+  return OK_NO_ERROR;
 }
 #endif
 
