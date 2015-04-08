@@ -39,7 +39,7 @@
 //                            +------+
 
 
-// --- DAC / SPI setup:
+// --- DAC / SPI:
 
 
 DAC_config_t dac_config = MCP4821_config();
@@ -58,7 +58,7 @@ SPI_device_t spi_dac = { .bus = &spi_bus,
                        };
 
 
-// --- Serial setup:
+// --- Serial interface:
 
 
 #define RX_pin ATTINY85_PIN_2
@@ -99,8 +99,15 @@ Calibrate the LM317 VREF:
 
     r1.25;
 
-FIXME: should I also support 'XFF;', which is the equivalent of 'xFF;' but with gain bit set?
+Dump the current state:
+
+    ?;
+
 */
+
+
+// --- buffer
+
 
 #define MIN_EXPECTED_BUFF_LEN 2 // "+;"
 #define MAX_EXPECTED_BUFF_LEN 9 // "v12.3456;"
@@ -110,57 +117,11 @@ char buffer_bytes[BUFF_LEN];
 char_buffer_t buffer = { .len = BUFF_LEN, .bytes = buffer_bytes };
 
 
-// --- EEPROM
+// --- globals
 
 
 float LM317_vref = 1.25;
 float op_amp_gain = 4.3;
-
-#ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
-
-uint8_t EEMEM eeprom_has_been_initialized_token_address;
-#define EEPROM_HAS_BEEN_INITIALIZED_CODE 42
-
-float EEMEM LM317_vref_EEPROM_address;
-
-float EEMEM op_amp_gain_EEPROM_address;
-
-
-bool eeprom_has_been_initialized()
-{
-  uint8_t has_been_initialized_token = eeprom_read_byte(&eeprom_has_been_initialized_token_address);
-  return (has_been_initialized_token == EEPROM_HAS_BEEN_INITIALIZED_CODE);
-}
-
-
-void initialize_eeprom()
-{
-  eeprom_write_byte(&eeprom_has_been_initialized_token_address, EEPROM_HAS_BEEN_INITIALIZED_CODE);
-  eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
-  eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
-}
-
-
-void load_values_from_eeprom()
-{
-  LM317_vref = eeprom_read_float(&LM317_vref_EEPROM_address);
-  op_amp_gain = eeprom_read_float(&op_amp_gain_EEPROM_address);
-}
-
-
-void bootstrap_EEPROM()
-{
-  if (eeprom_has_been_initialized() == false)
-  {
-    initialize_eeprom();
-  }
-  else
-  {
-    load_values_from_eeprom();
-  }
-}
-
-#endif // HAS_EEPROM_BACKED_CALIBRATION_VALUES
 
 
 // ---
@@ -286,6 +247,59 @@ void loop()
   }
   #endif
 }
+
+
+// --- EEPROM
+
+
+#ifdef HAS_EEPROM_BACKED_CALIBRATION_VALUES
+
+uint8_t EEMEM eeprom_has_been_initialized_token_address;
+#define EEPROM_HAS_BEEN_INITIALIZED_CODE 42
+
+float EEMEM LM317_vref_EEPROM_address;
+
+float EEMEM op_amp_gain_EEPROM_address;
+
+
+bool eeprom_has_been_initialized()
+{
+  uint8_t has_been_initialized_token = eeprom_read_byte(&eeprom_has_been_initialized_token_address);
+  return (has_been_initialized_token == EEPROM_HAS_BEEN_INITIALIZED_CODE);
+}
+
+
+void initialize_eeprom()
+{
+  eeprom_write_byte(&eeprom_has_been_initialized_token_address, EEPROM_HAS_BEEN_INITIALIZED_CODE);
+  eeprom_write_float(&LM317_vref_EEPROM_address, LM317_vref);  
+  eeprom_write_float(&op_amp_gain_EEPROM_address, op_amp_gain);
+}
+
+
+void load_values_from_eeprom()
+{
+  LM317_vref = eeprom_read_float(&LM317_vref_EEPROM_address);
+  op_amp_gain = eeprom_read_float(&op_amp_gain_EEPROM_address);
+}
+
+
+void bootstrap_EEPROM()
+{
+  if (eeprom_has_been_initialized() == false)
+  {
+    initialize_eeprom();
+  }
+  else
+  {
+    load_values_from_eeprom();
+  }
+}
+
+#endif // HAS_EEPROM_BACKED_CALIBRATION_VALUES
+
+
+// ---
 
 
 command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
