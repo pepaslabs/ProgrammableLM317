@@ -75,18 +75,6 @@ Set the output voltage to 5 volts:
 
     v5.000;
 
-Set the bits in the DAC to 0xFF (8-bit DAC):
-
-    xFF;
-
-Set the bits in the DAC to 0x3FF (10-bit DAC):
-
-    x3FF;
-
-Set the bits in the DAC to 0xFFF (12-bit DAC):
-
-    xFFF;
-
 Set the DAC output code to 255, no gain:
 
     c255;
@@ -120,8 +108,6 @@ FIXME: should I also support 'XFF;', which is the equivalent of 'xFF;' but with 
 
 char buffer_bytes[BUFF_LEN];
 char_buffer_t buffer = { .len = BUFF_LEN, .bytes = buffer_bytes };
-
-char *buff_ptr;
 
 
 // --- EEPROM
@@ -204,13 +190,12 @@ void setup()
   digitalWrite(spi_dac.CS_pin, HIGH); // start with the DAC un-selected.
 
   clear_char_buffer(&buffer);
-  buff_ptr = (buffer.bytes); // FIXME can I delete this?
 }
 
 
 void loop()
 {
-  command_t command = read_command(&serial, buffer.bytes, buffer.len);
+  command_t command = read_command(&serial, &buffer);
   if (command >= END_OF_COMMANDS_SECTION)
   {
     #ifdef HAS_ERROR_PRINTING
@@ -245,15 +230,7 @@ void loop()
     #ifdef HAS_VOLTS_COMMAND
     case COMMAND_SET_VOLTS:
     {
-      error = parse_and_run_voltage_command(buffer.bytes, &dac_data, &spi_dac);
-      break;
-    }
-    #endif
-  
-    #ifdef HAS_HEX_COMMAND
-    case COMMAND_SET_HEX:
-    {
-      error = parse_and_run_hex_command(buffer.bytes, &dac_data, &spi_dac);
+      error = parse_and_run_voltage_command(&buffer, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -261,7 +238,7 @@ void loop()
     #ifdef HAS_CODE_COMMAND
     case COMMAND_SET_CODE:
     {
-      error = parse_and_run_code_command(buffer.bytes, &dac_data, &spi_dac);
+      error = parse_and_run_code_command(&buffer, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -269,7 +246,7 @@ void loop()
     #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
     case COMMAND_CALIBRATE_OP_AMP_GAIN:
     {
-      error = parse_and_run_calibrate_gain_command(buffer.bytes, &dac_data, &spi_dac);
+      error = parse_and_run_calibrate_gain_command(&buffer, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -277,7 +254,7 @@ void loop()
     #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
     case COMMAND_CALIBRATE_LM317_VREF:
     {
-      error = parse_and_run_calibrate_vref_command(buffer.bytes, &dac_data, &spi_dac);
+      error = parse_and_run_calibrate_vref_command(&buffer, &dac_data, &spi_dac);
       break;
     }
     #endif
@@ -307,7 +284,7 @@ void loop()
 }
 
 
-command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
+command_t read_command(SoftwareSerial *serial, char_buffer_t *buffer)
 {
   // --- read the first character
   
@@ -350,32 +327,11 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     }
     #endif
     
-    #ifdef HAS_HEX_COMMAND
-    case 'x':
-    {
-      // prepend buffer with '0x'
-      buffer[0] = '0';
-      buffer[1] = 'x';
-      buff_ptr = buffer+2;
-    
-      // read the hex characters into the buffer
-      error_t error = read_until_sentinel(serial, buffer, buff_len-2, ';');    
-      if (error == OK_NO_ERROR)
-      {
-        return COMMAND_SET_HEX;
-      }
-      else // i.e. if (error == ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED)
-      {      
-        return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED_WHILE_PARSING_HEX_COMMAND;
-      }
-    }
-    #endif
-
     #ifdef HAS_VOLTS_COMMAND
     case 'v':
     {
       // read the floating point string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      error_t error = read_until_sentinel(serial, buffer, ';');
       if (error == OK_NO_ERROR)
       {
         return COMMAND_SET_VOLTS;
@@ -392,7 +348,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     case 'c':
     {
       // read the code string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      error_t error = read_until_sentinel(serial, buffer, ';');
       if (error == OK_NO_ERROR)
       {
         return COMMAND_SET_CODE;
@@ -409,7 +365,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     case 'g':
     {
       // read the gain string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      error_t error = read_until_sentinel(serial, buffer, ';');
       if (error == OK_NO_ERROR)
       {
         return COMMAND_CALIBRATE_OP_AMP_GAIN;
@@ -426,7 +382,7 @@ command_t read_command(SoftwareSerial *serial, char *buffer, uint8_t buff_len)
     case 'r':
     {
       // read the vref string into the buffer
-      error_t error = read_until_sentinel(serial, buffer, buff_len, ';');
+      error_t error = read_until_sentinel(serial, buffer, ';');
       if (error == OK_NO_ERROR)
       {
         return COMMAND_CALIBRATE_LM317_VREF;
@@ -469,10 +425,10 @@ uint8_t consume_until_sentinel(SoftwareSerial *serial, char sentinel)
 }
 
 
-error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_len, char sentinel)
+error_t read_until_sentinel(SoftwareSerial *serial, char_buffer_t *buffer, char sentinel)
 {
   uint8_t num_chars_consumed = 0;
-  char *buff_ptr = buffer;
+  char *buff_ptr = buffer->bytes;
   
   while(true)
   {
@@ -489,7 +445,7 @@ error_t read_until_sentinel(SoftwareSerial *serial, char *buffer, uint8_t buff_l
       *buff_ptr = '\0';
       return OK_NO_ERROR;
     }
-    else if (num_chars_consumed == buff_len-1)
+    else if (num_chars_consumed == buffer->len - 1)
     {
       *buff_ptr = '\0';
       return ERROR_BUFFER_FILLED_UP_BEFORE_SENTINEL_REACHED;
@@ -539,9 +495,9 @@ error_t decrement_output_voltage(DAC_data_t *dac_data, SPI_device_t *spi_dac)
 
 
 #ifdef HAS_VOLTS_COMMAND
-error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+error_t parse_and_run_voltage_command(char_buffer_t *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  float output_volts = atof(buffer);
+  float output_volts = atof(buffer->bytes);
   
   #ifdef HAS_VOLTS_COMMAND_DEBUGGING
   {
@@ -572,34 +528,12 @@ error_t parse_and_run_voltage_command(char *buffer, DAC_data_t *dac_data, SPI_de
 #endif
 
 
-#ifdef HAS_HEX_COMMAND
-error_t parse_and_run_hex_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
-{
-  uint16_t new_code = 0;
-  
-  int num_matches_found = sscanf(buffer, "%x", &new_code);
-  if (num_matches_found != 1)
-  {
-    return ERROR_PARSING_HEX_VALUE;
-  }
-
-  if (dac_data_set_code(dac_data, new_code) == false)
-  {
-    return ERROR_PARSED_HEX_OUTSIDE_SUPPORTED_RANGE;
-  }
-  
-  send_dac_data(dac_data, spi_dac);
-  return OK_NO_ERROR;
-}
-#endif
-
-
 #ifdef HAS_CODE_COMMAND
-error_t parse_and_run_code_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+error_t parse_and_run_code_command(char_buffer_t *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
   uint16_t new_code = 0;
   
-  int num_matches_found = sscanf(buffer, "%u", &new_code);
+  int num_matches_found = sscanf(buffer->bytes, "%u", &new_code);
   if (num_matches_found != 1)
   {
     return ERROR_PARSING_CODE_VALUE;
@@ -617,9 +551,9 @@ error_t parse_and_run_code_command(char *buffer, DAC_data_t *dac_data, SPI_devic
 
 
 #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND
-error_t parse_and_run_calibrate_gain_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+error_t parse_and_run_calibrate_gain_command(char_buffer_t *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  float new_gain = atof(buffer);
+  float new_gain = atof(buffer->bytes);
   
   #ifdef HAS_CALIBRATE_OP_AMP_GAIN_COMMAND_DEBUGGING
   {
@@ -647,9 +581,9 @@ error_t parse_and_run_calibrate_gain_command(char *buffer, DAC_data_t *dac_data,
 
 
 #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND
-error_t parse_and_run_calibrate_vref_command(char *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
+error_t parse_and_run_calibrate_vref_command(char_buffer_t *buffer, DAC_data_t *dac_data, SPI_device_t *spi_dac)
 {
-  float new_vref = atof(buffer);
+  float new_vref = atof(buffer->bytes);
   
   #ifdef HAS_CALIBRATE_LM317_VREF_COMMAND_DEBUGGING
   {
