@@ -2,13 +2,15 @@
 
 A TTL-serial programmable LM317 voltage voltage supply circuit board design.
 
-![](releases/v2/top.png)
+![](kicad/releases/v2.1/top.png)
 
-![](releases/v2/bottom.png)
+![](kicad/releases/v2.1/bottom.png)
 
-Gerbers: [zip](releases/v2/gerbers.zip)
+Schematic: [pdf](kicad/releases/v2.1/ProgrammableLM317.pdf).
 
-Schematic: [pdf](releases/v2/ProgrammableLM317_schematic.pdf).
+Gerbers: [zip](kicad/releases/v2.1/gerbers.zip)
+
+OSHPark: [link](https://oshpark.com/shared_projects/kM7WPtAO)
 
 ## License
 
